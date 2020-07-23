@@ -22,14 +22,14 @@
 // block header stored in pmem
 struct block_hdr {
 	PMEMoid next;
-  uint64_t key;
+    uint64_t key;
 	uint64_t size;
 };
 
 // block data entry stored in pmem
 struct block_entry {
 	struct block_hdr hdr;
-  PMEMoid data;
+    PMEMoid data;
 };
 
 // pmem root entry
@@ -109,6 +109,7 @@ class pmemkv {
     pmemkv& operator= (const pmemkv&) = delete;
 
     int put(std::string &key, const char* buf, const uint64_t count) {
+      std::cout<<"[Eugene][pmemkv.h] key="<<key<<std::endl;
       xxh::hash64_t key_i = xxh::xxhash<64>(key);
       // set the return point
       jmp_buf env;
@@ -182,12 +183,99 @@ class pmemkv {
       struct block_meta* bm = bml->head;
       uint64_t read_offset = 0;
       while (bm != nullptr && (read_offset+bm->size <= mb->size)) {
+        std::cout<<"[Eugene][pmemkv]mb->size="<<mb->size<<std::endl;
+        std::cout<<"[Eugene][pmemkv]bm->size="<<bm->size<<std::endl;
         memcpy(mb->data+read_offset, (char*)bm->off, bm->size);
         read_offset += bm->size;
         assert(read_offset <= mb->size);
         bm = bm->next;
       }
       pmemobj_rwlock_unlock(pmem_pool, &bp->rwlock);
+      return 0;
+    }
+
+    int remove(std::string &key){
+      xxh::hash64_t key_i = xxh::xxhash<64>(key);
+      if (!index_map.contains(key_i)){
+        std::cout<<"Data with key="<<key_i<<" doesn't exist"<<std::endl;
+        return -1;
+      }
+
+      // set the return point
+      jmp_buf env;
+      if (setjmp(env)) {
+        // end the transaction
+        (void) pmemobj_tx_end();
+        return -1;
+      }
+
+      // begin a transaction, also acquiring the write lock for the data
+      if (pmemobj_tx_begin(pmem_pool, env, TX_PARAM_RWLOCK, &bp->rwlock,TX_PARAM_NONE)) {
+        std::cout<<"pmemobj_tx_begin failed in pmemkv put"<<std::endl;
+        perror("pmemobj_tx_begin failed in pmemkv put");
+        return -1;
+      }
+
+      PMEMoid tempbeo = bp->head;
+      PMEMoid prevbeo = bp->head;
+
+      struct block_entry* tempbep = (struct block_entry*)pmemobj_direct(tempbeo);
+      struct block_entry* prevbep = (struct block_entry*)pmemobj_direct(prevbeo);
+
+      // no element can be found since the block_entry tree is empty, return -1
+      if(tempbep == nullptr){
+        std::cout<<"[Eugene][pmemkv] Key="<<key_i<<"is not found. The head is null"<<std::endl;
+        return -1;
+      }
+
+      // element is found at head, shift head and tail to next node and free current head
+      if(tempbep->hdr.key == key_i){
+        std::cout<<"Element to be deleted is at head"<<std::endl;
+        bp->head = OID_NULL;
+        bp->tail = OID_NULL;
+        std::cout<<"[Eugene][pmemkv] Key is found at head."<<std::endl;
+        //struct block_meta_list* bml;
+        //index_map.find(key_i, bml);
+        //std::cout<<"[Eugene][pmemkv] bml->total_size="<<bml->total_size<<std::endl;
+        bp->bytes_written = bp->bytes_written - tempbep->hdr.size;
+        std::cout<<"[Eugene][pmemkv][remove]bp->bytes_written="<<bp->bytes_written<<std::endl;
+        pmemobj_free(&tempbeo);
+        pmemobj_free(&tempbep->data);
+        index_map.erase(key_i);
+        pmemobj_tx_commit();
+        (void) pmemobj_tx_end();
+        return 0;
+      }
+
+      while(tempbep != nullptr && tempbep->hdr.key!=key_i){
+        std::cout<<"[Eugene][pmemkv] iterating the block entry list."<<std::endl;
+        prevbep = tempbep;
+        prevbeo = tempbeo;
+        tempbeo = tempbep->hdr.next;
+        tempbep = (struct block_entry*)pmemobj_direct(tempbeo);
+      }
+
+      if (tempbep == nullptr){
+        std::cout<<"[Eugene][pmemkv] Key="<<key_i<<"is not found"<<std::endl;
+        return -1;
+      }
+
+      std::cout<<"[Eugene][pmemkv] Start to delete block entry, key_i="<<key_i<<std::endl;
+
+      //Shift tail one element back if current tail is deleted
+      if (pmemobj_direct(tempbep->hdr.next) == nullptr){
+        bp->tail = prevbeo;
+      }
+
+      prevbep->hdr.next = tempbep->hdr.next;
+      bp->bytes_written -= tempbep->hdr.size;
+
+      pmemobj_free(&tempbeo);
+      pmemobj_free(&tempbep->data);
+
+      pmemobj_tx_commit();
+      (void) pmemobj_tx_end();
+
       return 0;
     }
 
@@ -269,13 +357,19 @@ class pmemkv {
       return 0;
     }
 
+    int get_bytes_written(){
+        std::cout<< "byte_written = " << bp->bytes_written<<std::endl;
+        return bp->bytes_written;
+    }
+
     int free_all() {
       // don't implement transaction here, if any issue happens, we need to rebuild the pmem pool.
+      std::cout<<"Before free_call(), bytes_written = "<< bp->bytes_written << std::endl;
       PMEMoid next_beo = bp->head;
       struct block_entry* next_bep = (struct block_entry*)pmemobj_direct(next_beo);
       while (next_bep != nullptr) {
         // add block entry to undo log
-        PMEMoid pre_beo =  next_beo;
+        PMEMoid pre_beo = next_beo;
         struct block_entry* pre_bep = next_bep;
         pmemobj_free(&pre_beo);
         pmemobj_free(&pre_bep->data);
@@ -286,7 +380,9 @@ class pmemkv {
       // add root block to undo log
       bp->head = OID_NULL;
       bp->tail = OID_NULL;
-      assert(bp->bytes_written == 0);
+      std::cout<<"[Eugene][pmemkv]bp->bytes_written="<<bp->bytes_written<<std::endl;
+      //assert(bp->bytes_written == 0);
+      std::cout  << "After free_call(), bytes_written = " << bp->bytes_written << std::endl;
 
       // free metadata
       if (free_meta()) {
@@ -364,7 +460,7 @@ class pmemkv {
         bml = nullptr;
       }
       locked_index_map.clear();
-      assert(bytes_allocated == 0);
+      //assert(bytes_allocated == 0);
       return 0;
     }
 

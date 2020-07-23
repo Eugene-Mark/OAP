@@ -21,7 +21,12 @@ private[spark] class PmemShuffleBlockResolver(
   }
 
   override def stop() {
+    logInfo("[Eugene][PmemShuffleBlockResolver][stop]")
     PersistentMemoryHandler.stop()
     super.stop()
+  }
+
+  override def removeDataByMap(shuffleId: ShuffleId, mapId: Long): Unit ={
+    logInfo("[Eugene][PmemShuffleBlockResolver][removeDataByMap]ShuffleId=" + shuffleId + "mapId=" + mapId)
   }
 }

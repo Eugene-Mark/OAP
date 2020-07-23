@@ -45,6 +45,8 @@ private[spark] class PmemBlockOutputStream(
   var partitionMeta: Array[(Long, Int, Int)] = _
   val root_dir = Utils.getConfiguredLocalDirs(conf).toList.sortWith(_ < _)(0)
 
+  logInfo("root_dir=" + root_dir + "blockId.name" + blockId.name)
+
   val persistentMemoryWriter: PersistentMemoryHandler = PersistentMemoryHandler.getPersistentMemoryHandler(pmofConf,
     root_dir, pmofConf.path_list, blockId.name, pmofConf.maxPoolSize)
 

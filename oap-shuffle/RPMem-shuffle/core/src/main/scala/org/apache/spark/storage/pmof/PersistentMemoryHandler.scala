@@ -40,7 +40,9 @@ private[spark] class PersistentMemoryHandler(
       poolSize = 0
     }
   }
-  
+
+  logInfo("[Eugene] The device to be open is: " + device)
+
   val pmpool = new PersistentMemoryPool(device, poolSize)
   var rkey: Long = 0
 
@@ -129,6 +131,12 @@ object PersistentMemoryHandler {
       persistentMemoryHandler.close()
       persistentMemoryHandler = null
       stopped = true
+    }
+  }
+
+  def clean(): Unit = synchronized {
+    if (persistentMemoryHandler != null){
+      persistentMemoryHandler.close()
     }
   }
 

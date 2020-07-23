@@ -5,6 +5,7 @@ import java.util.concurrent.ConcurrentHashMap
 import org.apache.spark.internal.Logging
 import org.apache.spark.network.pmof.PmofTransferService
 import org.apache.spark.shuffle._
+import org.apache.spark.storage.pmof.PersistentMemoryHandler
 import org.apache.spark.util.collection.OpenHashSet
 import org.apache.spark.util.configuration.pmof.PmofConf
 import org.apache.spark.{ShuffleDependency, SparkConf, SparkEnv, TaskContext}
@@ -80,7 +81,7 @@ private[spark] class PmofShuffleManager(conf: SparkConf) extends ShuffleManager 
       }
     }
      */
-
+    logInfo("[Eugene] Unregister shuffle is called, shuffleId = " + shuffleId)
     Option(taskIdMapsForShuffle.remove(shuffleId)).foreach { mapTaskIds =>
       mapTaskIds.iterator.foreach { mapTaskId =>
         shuffleBlockResolver.removeDataByMap(shuffleId, mapTaskId)

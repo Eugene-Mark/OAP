@@ -57,6 +57,14 @@ JNIEXPORT jlong JNICALL Java_org_apache_spark_storage_pmof_PersistentMemoryPool_
 
 /*
  * Class:     lib_jni_pmdk
+ * Method:    nativeGetBytesWritten
+ * Signature: ()J
+ */
+JNIEXPORT jlong JNICALL Java_org_apache_spark_storage_pmof_PersistentMemoryPool_nativeGetBytesWritten
+  (JNIEnv *, jobject, jlong);
+
+/*
+ * Class:     lib_jni_pmdk
  * Method:    nativeNewPmemBuffer
  * Signature: ()J
  */
@@ -121,6 +129,8 @@ JNIEXPORT jint JNICALL Java_org_apache_spark_storage_pmof_PmemBuffer_nativeClean
  */
 JNIEXPORT jint JNICALL Java_org_apache_spark_storage_pmof_PmemBuffer_nativeDeletePmemBuffer
   (JNIEnv *, jobject, jlong);
+
+
 
 #ifdef __cplusplus
 }

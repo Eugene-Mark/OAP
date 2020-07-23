@@ -21,6 +21,7 @@ int test_multithread_put(uint64_t index, pmemkv* kv) {
   return 0;
 }
 
+/**
 TEST_CASE( "PmemBuffer operations", "[PmemBuffer]" ) {
   char data[LENGTH] = {};
   memset(data, 'a', LENGTH);
@@ -52,7 +53,9 @@ TEST_CASE( "PmemBuffer operations", "[PmemBuffer]" ) {
     for (char c = 'a'; c < 'f'; c++) {
       memset(data + (c - 'a') * 3, c, 3);
     }
+    **/
     /*data should be "aaabbbcccdddeee"*/
+    /**
     buf.write(data, 15);
 
     char* firstTime = buf.getDataForFlush(buf.getRemaining());
@@ -65,6 +68,7 @@ TEST_CASE( "PmemBuffer operations", "[PmemBuffer]" ) {
     REQUIRE(secondTime == nullptr);
   }
 }
+**/
 
 TEST_CASE("pmemkv operations", "[pmemkv]") {
   SECTION("test open and close") {
@@ -107,6 +111,74 @@ TEST_CASE("pmemkv operations", "[pmemkv]") {
     kv->free_all();
     delete kv;
   }
+
+  SECTION("test remove element from an empty list"){
+    std::string key = "remove-element-from-empty-list";
+    pmemkv* kv = new pmemkv("/dev/dax0.0");
+    int result = kv->remove(key);
+    REQUIRE(result == -1);
+    kv->free_all();
+    delete kv;
+  }
+
+  SECTION("test remove an non-existed element"){
+    std::string key = "key";
+    pmemkv* kv = new pmemkv("/dev/dax0.0");
+    int length = 5;
+    kv->put(key, "first", length);
+    string non_existed_key = "non-exist-key";
+    int result = kv->remove(non_existed_key);
+    REQUIRE(result == -1);
+    kv->free_all();
+    delete kv;
+  }
+
+
+  SECTION("test remove an element from a middle of a list"){
+    pmemkv* kv = new pmemkv("/dev/dax0.0");
+    std::string key1 = "first-key";
+    int length1 = 5;
+    kv->put(key1, "first", length1);
+
+    std::string key2 = "second-key";
+    int length2 = 6;
+    kv->put(key2, "second", length2);
+
+    std::string key3 = "third-key";
+    int length3 = 5;
+    kv->put(key3, "third", length3);
+
+    kv->dump_all();
+    kv->remove(key2);
+    kv->dump_all();
+    kv->remove(key3);
+    kv->dump_all();
+    kv->remove(key1);
+    kv->dump_all();
+
+    REQUIRE(1 == 1);
+
+    kv->free_all();
+    delete kv;
+  }
+
+  SECTION("test remove an element from a single node list"){
+    std::string key = "key-single";
+    pmemkv* kv = new pmemkv("/dev/dax0.0");
+    int length = 4;
+    kv->put(key, "first", length);
+
+    std::cout<<"Before remove a single node, dump all: "<<std::endl;
+    kv->dump_all();
+    int result = kv->remove(key);
+    std::cout<<"After remove a single node, dump all: "<<std::endl;
+    kv->dump_all();
+    REQUIRE(result == 0);
+    kv->free_all();
+    delete kv;
+  }
+
+
 
   SECTION("test multithreaded put and get") {
     std::vector<std::thread> threads;
