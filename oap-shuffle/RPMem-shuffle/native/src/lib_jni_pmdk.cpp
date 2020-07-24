@@ -49,6 +49,15 @@ JNIEXPORT jlong JNICALL Java_org_apache_spark_storage_pmof_PersistentMemoryPool_
   return value_size;
   }
 
+  JNIEXPORT jlong JNICALL Java_org_apache_spark_storage_pmof_PersistentMemoryPool_nativeRemoveBlock
+    (JNIEnv *env, jclass obj, jlong kv, jstring key){
+    const char *CStr = env->GetStringUTFChars(key, 0);
+    string key_str(CStr);
+    pmemkv *pmkv = static_cast<pmemkv*>((void*)kv);
+    long result = pmkv->remove(key_str);
+    return result;
+    }
+
 JNIEXPORT jint JNICALL Java_org_apache_spark_storage_pmof_PersistentMemoryPool_nativeCloseDevice
   (JNIEnv *env, jclass obj, jlong kv) {
   pmemkv *pmkv = static_cast<pmemkv*>((void*)kv);

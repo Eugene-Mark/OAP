@@ -28,5 +28,17 @@ private[spark] class PmemShuffleBlockResolver(
 
   override def removeDataByMap(shuffleId: ShuffleId, mapId: Long): Unit ={
     logInfo("[Eugene][PmemShuffleBlockResolver][removeDataByMap]ShuffleId=" + shuffleId + "mapId=" + mapId)
+    val partitionNumber = conf.get("spark.sql.shuffle.partitions")
+    logInfo("partitionNumber=" + partitionNumber)
+
+    val persistentMemoryHandler = PersistentMemoryHandler.getPersistentMemoryHandler
+
+    for (i <- 0 to partitionNumber.toInt){
+      val key = "shuffle_" + shuffleId + "_" + mapId + "_" + i
+      logInfo("key=" + key)
+      persistentMemoryHandler.removeBlock(key)
+    }
+
+
   }
 }
