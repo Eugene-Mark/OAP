@@ -249,10 +249,13 @@ class pmemkv {
         std::cout<<"The node to be deleted is NOT at head"<<std::endl;
         //Node to be deleted is at the tail
         if (pmemobj_direct(bep->hdr.next) == nullptr){
+            std::cout<<"The node to be deleted is at tail"<<std::endl;
             /**
                 The one node scenario is already covered in head judgement, there are two or more nodes here
             **/
             bp->tail = bep->hdr.pre;
+            struct block_entry* prebep = (struct block_entry*)pmemobj_direct(bep->hdr.pre);
+            prebep->hdr.next = OID_NULL;
             bp->bytes_written = bp->bytes_written - bep->hdr.size;
             pmemobj_free(&bep->data);
             next = next->next;
@@ -269,6 +272,7 @@ class pmemkv {
       index_map.erase(key_i);
       pmemobj_tx_commit();
       (void) pmemobj_tx_end();
+      std::cout<<"The remove call is finished..."<<std::endl;
       return 0;
 
       /** Remove an element in single linked list way
