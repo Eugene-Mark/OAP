@@ -133,6 +133,20 @@ TEST_CASE("pmemkv operations", "[pmemkv]") {
     delete kv;
   }
 
+  SECTION("test remove an element from a single node list"){
+    std::string key = "key-single";
+    pmemkv* kv = new pmemkv("/dev/dax0.0");
+    int length = 5;
+    kv->put(key, "first", length);
+    std::cout<<"Before remove a single node, dump all: "<<std::endl;
+    kv->dump_all();
+    int result = kv->remove(key);
+    std::cout<<"After remove a single node, dump all: "<<std::endl;
+    kv->dump_all();
+    REQUIRE(result == 0);
+    kv->free_all();
+    delete kv;
+  }
 
   SECTION("test remove an element from a middle of a list"){
     pmemkv* kv = new pmemkv("/dev/dax0.0");
@@ -148,37 +162,32 @@ TEST_CASE("pmemkv operations", "[pmemkv]") {
     int length3 = 5;
     kv->put(key3, "third", length3);
 
-    kv->dump_all();
-    kv->remove(key2);
-    kv->dump_all();
-    kv->remove(key3);
-    kv->dump_all();
-    kv->remove(key1);
-    kv->dump_all();
+    std::string key4 = "forth-key";
+    int length4 = 5;
+    kv->put(key4, "forth", length4);
 
-    REQUIRE(1 == 1);
+    kv->dump_all();
+    long r1 = kv->remove(key4);
+    std::cout<<"The forth is removed, dump:"<<std::endl;
+    kv->dump_all();
+    long r2 = kv->remove(key2);
+    std::cout<<"The second is removed, dump:"<<std::endl;
+    kv->dump_all();
+    long r3 = kv->remove(key1);
+    std::cout<<"The first is removed, dump:"<<std::endl;
+    kv->dump_all();
+    long r4 = kv->remove(key3);
+    std::cout<<"The third is removed, dump:"<<std::endl;
+    kv->dump_all();
+    REQUIRE((r1 + r2 + r3 + r4) == 0);
 
     kv->free_all();
     delete kv;
   }
 
-  SECTION("test remove an element from a single node list"){
-    std::string key = "key-single";
-    pmemkv* kv = new pmemkv("/dev/dax0.0");
-    int length = 4;
-    kv->put(key, "first", length);
-
-    std::cout<<"Before remove a single node, dump all: "<<std::endl;
-    kv->dump_all();
-    int result = kv->remove(key);
-    std::cout<<"After remove a single node, dump all: "<<std::endl;
-    kv->dump_all();
-    REQUIRE(result == 0);
-    kv->free_all();
-    delete kv;
-  }
 
 
+/**
 
   SECTION("test multithreaded put and get") {
     std::vector<std::thread> threads;
@@ -265,4 +274,5 @@ TEST_CASE("pmemkv operations", "[pmemkv]") {
     kv->free_all();
     delete kv;
   }
+  **/
 }

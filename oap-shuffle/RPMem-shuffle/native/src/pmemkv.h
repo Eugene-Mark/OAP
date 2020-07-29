@@ -22,6 +22,7 @@
 // block header stored in pmem
 struct block_hdr {
 	PMEMoid next;
+	PMEMoid pre;
     uint64_t key;
 	uint64_t size;
 };
@@ -45,6 +46,7 @@ struct block_meta {
   block_meta* next;
   uint64_t off;
   uint64_t size;
+  block_entry* bep;
 };
 
 struct block_meta_list {
@@ -96,7 +98,7 @@ class pmemkv {
       if (create()) {
         int res = open();
         if (res) {
-          std::cout << "failed to open pmem pool, errmsg: " << pmemobj_errormsg() << std::endl; 
+          std::cout << "failed to open pmem pool, errmsg: " << pmemobj_errormsg() << std::endl;
         }
       }
     }
@@ -109,7 +111,7 @@ class pmemkv {
     pmemkv& operator= (const pmemkv&) = delete;
 
     int put(std::string &key, const char* buf, const uint64_t count) {
-      std::cout<<"[Eugene][pmemkv.h] key="<<key<<std::endl;
+      //std::cout<<"[Eugene][pmemkv.h] key="<<key<<std::endl;
       xxh::hash64_t key_i = xxh::xxhash<64>(key);
       // set the return point
       jmp_buf env;
@@ -141,6 +143,7 @@ class pmemkv {
       }
       char* pmem_data = (char*)pmemobj_direct(bep->data);
       memcpy(pmem_data, buf, count);
+      bep->hdr.pre = bp->tail;
       bep->hdr.next = OID_NULL;
       bep->hdr.key = key_i;
       bep->hdr.size = count;
@@ -183,8 +186,6 @@ class pmemkv {
       struct block_meta* bm = bml->head;
       uint64_t read_offset = 0;
       while (bm != nullptr && (read_offset+bm->size <= mb->size)) {
-        std::cout<<"[Eugene][pmemkv]mb->size="<<mb->size<<std::endl;
-        std::cout<<"[Eugene][pmemkv]bm->size="<<bm->size<<std::endl;
         memcpy(mb->data+read_offset, (char*)bm->off, bm->size);
         read_offset += bm->size;
         assert(read_offset <= mb->size);
@@ -216,6 +217,63 @@ class pmemkv {
         return -1;
       }
 
+      // Remove data by block meta list
+      struct block_meta_list* bml;
+      index_map.find(key_i, bml);
+
+      struct block_meta *next = bml->head;
+      //Delete block_entry in bml one by one
+      while (next != nullptr) {
+        //pmemobj_free((PMEMoid*)next->off);
+        block_entry* bep = next->bep;
+        //Node to be deleted is at the head
+        if(bep == (struct block_entry*)pmemobj_direct(bp->head)){
+            std::cout<<"The node to be deleted is at head"<<std::endl;
+            if (pmemobj_direct(bep->hdr.next) == nullptr){
+                //There is only one block_entry
+                bp->head = OID_NULL;
+                bp->tail = OID_NULL;
+                bp->bytes_written = bp->bytes_written - bep->hdr.size;
+                pmemobj_free(&bep->data);
+                next = next->next;
+                continue;
+            }
+
+            //There are two or more block_entry
+            bp->head = bep->hdr.next;
+            bp->bytes_written = bp->bytes_written - bep->hdr.size;
+            pmemobj_free(&bep->data);
+            next = next->next;
+            continue;
+        }
+        std::cout<<"The node to be deleted is NOT at head"<<std::endl;
+        //Node to be deleted is at the tail
+        if (pmemobj_direct(bep->hdr.next) == nullptr){
+            /**
+                The one node scenario is already covered in head judgement, there are two or more nodes here
+            **/
+            bp->tail = bep->hdr.pre;
+            bp->bytes_written = bp->bytes_written - bep->hdr.size;
+            pmemobj_free(&bep->data);
+            next = next->next;
+            continue;
+        }
+
+        //Node to be deleted is at the middle, no head or tail, there are at least three nodes
+        struct block_entry* prebep = (struct block_entry*)pmemobj_direct(bep->hdr.pre);
+        prebep->hdr.next = bep->hdr.next;
+        bp->bytes_written = bp->bytes_written - bep->hdr.size;
+        pmemobj_free(&bep->data);
+        next = next->next;
+      }
+      index_map.erase(key_i);
+      pmemobj_tx_commit();
+      (void) pmemobj_tx_end();
+      return 0;
+
+      /** Remove an element in single linked list way
+      It's deprecated, it has perf issue and didn't take multiple blocks with same ID into consideration.
+
       PMEMoid tempbeo = bp->head;
       PMEMoid prevbeo = bp->head;
 
@@ -224,23 +282,27 @@ class pmemkv {
 
       // no element can be found since the block_entry tree is empty, return -1
       if(tempbep == nullptr){
-        std::cout<<"[Eugene][pmemkv] Key="<<key_i<<"is not found. The head is null"<<std::endl;
+        //std::cout<<"[Eugene][pmemkv] Key="<<key_i<<"is not found. The head is null"<<std::endl;
         return -1;
       }
 
-      // element is found at head, shift head and tail to next node and free current head
+      // element is found at head, shift head to next node and free current head
       if(tempbep->hdr.key == key_i){
-        std::cout<<"Element to be deleted is at head"<<std::endl;
-        bp->head = OID_NULL;
-        bp->tail = OID_NULL;
-        std::cout<<"[Eugene][pmemkv] Key is found at head."<<std::endl;
+        //std::cout<<"Element to be deleted is at head"<<std::endl;
+        if (pmemobj_direct(tempbep->hdr.next) == nullptr){
+            bp->head = OID_NULL;
+            bp->tail = OID_NULL;
+        }else{
+            bp->head = tempbep->hdr.next;
+        }
+        //std::cout<<"[Eugene][pmemkv] Key is found at head."<<std::endl;
         //struct block_meta_list* bml;
         //index_map.find(key_i, bml);
         //std::cout<<"[Eugene][pmemkv] bml->total_size="<<bml->total_size<<std::endl;
         bp->bytes_written = bp->bytes_written - tempbep->hdr.size;
-        std::cout<<"[Eugene][pmemkv][remove]bp->bytes_written="<<bp->bytes_written<<std::endl;
         pmemobj_free(&tempbeo);
         pmemobj_free(&tempbep->data);
+        // remove meta data
         index_map.erase(key_i);
         pmemobj_tx_commit();
         (void) pmemobj_tx_end();
@@ -248,7 +310,6 @@ class pmemkv {
       }
 
       while(tempbep != nullptr && tempbep->hdr.key!=key_i){
-        std::cout<<"[Eugene][pmemkv] iterating the block entry list."<<std::endl;
         prevbep = tempbep;
         prevbeo = tempbeo;
         tempbeo = tempbep->hdr.next;
@@ -256,11 +317,9 @@ class pmemkv {
       }
 
       if (tempbep == nullptr){
-        std::cout<<"[Eugene][pmemkv] Key="<<key_i<<"is not found"<<std::endl;
+        //std::cout<<"[Eugene][pmemkv] Key="<<key_i<<"is not found"<<std::endl;
         return -1;
       }
-
-      std::cout<<"[Eugene][pmemkv] Start to delete block entry, key_i="<<key_i<<std::endl;
 
       //Shift tail one element back if current tail is deleted
       if (pmemobj_direct(tempbep->hdr.next) == nullptr){
@@ -270,6 +329,11 @@ class pmemkv {
       prevbep->hdr.next = tempbep->hdr.next;
       bp->bytes_written -= tempbep->hdr.size;
 
+      std::cout<<"[Eugene][pmemkv] The element with key="<<tempbep->hdr.key<<"is deleted"<<std::endl;
+
+      // remove meta data
+      index_map.erase(key_i);
+
       pmemobj_free(&tempbeo);
       pmemobj_free(&tempbep->data);
 
@@ -277,6 +341,7 @@ class pmemkv {
       (void) pmemobj_tx_end();
 
       return 0;
+      **/
     }
 
     int get_value_size(std::string &key, uint64_t* size) {
@@ -476,6 +541,7 @@ class pmemkv {
         bm->off = (uint64_t)pmemobj_direct(bep->data);
         bm->size = bep->hdr.size;
         bm->next = nullptr;
+        bm->bep = bep;
         struct block_meta_list* bml = (struct block_meta_list*)std::malloc(sizeof(block_meta_list));
         if (!bml) {
           perror("malloc error in pmemkv update_meta");
@@ -501,6 +567,7 @@ class pmemkv {
         bm->off = (uint64_t)pmemobj_direct(bep->data);
         bm->size = bep->hdr.size;
         bm->next = nullptr;
+        bm->bep = bep;
         bml->tail->next = bm;
         bml->tail = bm;
         bml->total_size += bm->size;
